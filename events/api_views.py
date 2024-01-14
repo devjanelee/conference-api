@@ -1,6 +1,27 @@
 from django.http import JsonResponse
 from common.json import ModelEncoder
-from .models import Conference, Location
+from .models import Conference, Location, State
+from django.views.decorators.http import require_http_methods
+import json
+
+class LocationListEncoder(ModelEncoder):
+    model = Location
+    properties = ["name"]
+
+
+class LocationDetailEncoder(ModelEncoder):
+    model = Location
+    properties = [
+            "name",
+            "city",
+            "room_count",
+            "created",
+            "updated",
+    ]
+
+    def get_extra_data(self, o):
+        return {"state": o.state.abbreviation}
+
 
 class ConferenceDetailEncoder(ModelEncoder):
     model = Conference
@@ -13,6 +34,16 @@ class ConferenceDetailEncoder(ModelEncoder):
         "ends",
         "created",
         "updated",
+    ]
+    encoders = {
+        "location": LocationListEncoder(),
+    }
+
+
+class ConferenceListEncoder(ModelEncoder):
+    model = Conference
+    properties = [
+        "name",
     ]
 
 
@@ -35,16 +66,12 @@ def api_list_conferences(request):
         ]
     }
     """
-    response = []
     conferences = Conference.objects.all()
-    for conference in conferences:
-        response.append(
-            {
-                "name": conference.name,
-                "href": conference.get_api_url(),
-            }
-        )
-    return JsonResponse({"conferences": response})
+    return JsonResponse(
+        {"conferences": conferences},
+        encoder=ConferenceListEncoder,
+
+    )
 
 
 def api_show_conference(request, id):
@@ -76,9 +103,11 @@ def api_show_conference(request, id):
     return JsonResponse(
         conference,
         encoder=ConferenceDetailEncoder,
+        safe=False,
     )
 
 
+@require_http_methods(["GET", "POST"])
 def api_list_locations(request):
     """
     Lists the location names and the link to the location.
@@ -98,18 +127,33 @@ def api_list_locations(request):
         ]
     }
     """
-    response = []
-    locations = Location.objects.all()
-    for location in locations:
-        response.append(
-            {
-                "name": location.name,
-                "href": location.get_api_url(),
-            }
+    if request.method == "GET":
+        locations = Location.objects.all()
+        return JsonResponse(
+            {"locations": locations},
+            encoder=LocationListEncoder,
         )
-    return JsonResponse({"locations": response})
+    else: #POST
+        content = json.loads(request.body) #convert JSON formatted string to python dict
+        try:
+            #Get the State object and put it in the contenct dict
+            state = State.objects.get(abbreviation=content["state"])
+            content["state"] = state
+        except State.DoesNotExist:
+            return JsonResponse(
+                {"message": "Invalid State"},
+                status=400,
+            )
+
+        location = Location.objects.create(**content)
+        return JsonResponse(
+            location,
+            encoder=LocationDetailEncoder,
+            safe=False,
+        )
 
 
+@require_http_methods(["DELETE", "GET", "PUT"])
 def api_show_location(request, id):
     """
     Returns the details for the Location model specified
@@ -127,14 +171,13 @@ def api_show_location(request, id):
         "state": the two-letter abbreviation for the state,
     }
     """
-    location = Location.objects.get(id=id)
-    return JsonResponse(
-        {
-            "name": location.name,
-            "city": location.city,
-            "room_count": location.room_count,
-            "created": location.created,
-            "updated": location.updated,
-            "state": location.state.name,
-        }
-    )
+    if request.method == "GET":
+        location = Location.objects.get(id=id)
+        return JsonResponse(
+            location,
+            encoder=LocationDetailEncoder,
+            safe=False,
+        )
+    elif request.method == "DELETE":
+        count, _ = Location.objects.filter(id=id).delete()
+        return JsonResponse({"deleted": count > 0})
