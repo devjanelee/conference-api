@@ -1,6 +1,19 @@
 from django.http import JsonResponse
-
+from common.json import ModelEncoder
 from .models import Conference, Location
+
+class ConferenceDetailEncoder(ModelEncoder):
+    model = Conference
+    properties = [
+        "name",
+        "description",
+        "max_presentations",
+        "max_attendees",
+        "starts",
+        "ends",
+        "created",
+        "updated",
+    ]
 
 
 def api_list_conferences(request):
@@ -61,20 +74,8 @@ def api_show_conference(request, id):
     """
     conference = Conference.objects.get(id=id)
     return JsonResponse(
-        {
-            "name": conference.name,
-            "starts": conference.starts,
-            "ends": conference.ends,
-            "description": conference.description,
-            "created": conference.created,
-            "updated": conference.updated,
-            "max_presentations": conference.max_presentations,
-            "max_attendees": conference.max_attendees,
-            "location": {
-                "name": conference.location.name,
-                "href": conference.location.get_api_url(),
-            },
-        }
+        conference,
+        encoder=ConferenceDetailEncoder,
     )
 
 
@@ -97,7 +98,16 @@ def api_list_locations(request):
         ]
     }
     """
-    return JsonResponse({})
+    response = []
+    locations = Location.objects.all()
+    for location in locations:
+        response.append(
+            {
+                "name": location.name,
+                "href": location.get_api_url(),
+            }
+        )
+    return JsonResponse({"locations": response})
 
 
 def api_show_location(request, id):
@@ -117,4 +127,14 @@ def api_show_location(request, id):
         "state": the two-letter abbreviation for the state,
     }
     """
-    return JsonResponse({})
+    location = Location.objects.get(id=id)
+    return JsonResponse(
+        {
+            "name": location.name,
+            "city": location.city,
+            "room_count": location.room_count,
+            "created": location.created,
+            "updated": location.updated,
+            "state": location.state.name,
+        }
+    )
